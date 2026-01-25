@@ -72,8 +72,8 @@ def get_db():
 
 def send_discord_detailed_log(report: ScanReport):
     """Envia o log formatado para o Discord com os novos detalhes solicitados"""
-    if not DISCORD_WEBHOOK_URL or "SUA_WEBHOOK" in DISCORD_WEBHOOK_URL:
-        return
+    if not DISCORD_WEBHOOK_URL:  
+    return  
 
     details = report.details or {}
     
