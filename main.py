@@ -16,7 +16,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 Base = declarative_base()  
 
 # Definição da URL da Webhook - COLOQUE A SUA AQUI
-DISCORD_WEBHOOK_URL = "SUA_WEBHOOK_AQUI"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")    
 
 class Server(Base):  
     __tablename__ = "servers"  
