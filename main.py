@@ -70,10 +70,11 @@ def get_db():
     finally:  
         db.close()  
 
-def send_discord_detailed_log(report: ScanReport):
-    """Envia o log formatado para o Discord com os novos detalhes solicitados"""
+def send_discord_detailed_log(report: ScanReport):  
+    """Envia o log formatado para o Discord com os novos detalhes solicitados"""  
     if not DISCORD_WEBHOOK_URL:  
-    return  
+        return  
+
 
     details = report.details or {}
     
