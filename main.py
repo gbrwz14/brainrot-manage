@@ -13,16 +13,13 @@ class Brainrot(BaseModel):
     name: str  
     valuePerSecond: str  
     valueNumeric: float  
-    owner: str  
+    count: int  
     rarity: str  
-    mutation: str  
 class ScanDetails(BaseModel):  
-    top_owner: str  
-    top_owner_brainrots: List[Brainrot]  
-    all_brainrots: List[Brainrot]  
+    brainrots: List[Brainrot]  
+    has_rare: bool  
 class ScanReport(BaseModel):  
     job_id: str  
-    scanner_id: str  
     player_count: int  
     details: ScanDetails  
 class ServerQueue(BaseModel):  
@@ -36,20 +33,19 @@ def send_discord_detailed_log(report: ScanReport):
         return  
       
     try:  
-        top_owner = report.details.top_owner  
-        top_owner_brainrots = report.details.top_owner_brainrots  
+        brainrots = report.details.brainrots  
           
         # Formata lista de brainrots  
         brainrot_list = ""  
-        if top_owner_brainrots:  
-            for i, br in enumerate(top_owner_brainrots, 1):  
-                brainrot_list += f"{i}x {br.name} ({br.valuePerSecond})\n"  
+        if brainrots:  
+            for br in brainrots:  
+                brainrot_list += f"{br.count}x {br.name} {br.valuePerSecond}\n"  
         else:  
-            brainrot_list = "Nenhum brainrot encontrado"  
+            brainrot_list = "Nenhum brainrot com 10M+ encontrado"  
           
         # Cria o embed  
         embed = {  
-            "title": "☠️ Scan de Servidor Completo",  
+            "title": "☠️ Brainrots Detectados",  
             "color": 16711680,  # Vermelho  
             "fields": [  
                 {  
@@ -66,16 +62,6 @@ def send_discord_detailed_log(report: ScanReport):
                     "name": "👥 Players no Servidor",  
                     "value": f"```\n{report.player_count}```",  
                     "inline": False  
-                },  
-                {  
-                    "name": "🧠 Base com Maior Valor",  
-                    "value": f"```\n{top_owner}```",  
-                    "inline": False  
-                },  
-                {  
-                    "name": "🤖 Scanner",  
-                    "value": f"```\n{report.scanner_id}```",  
-                    "inline": False  
                 }  
             ],  
             "timestamp": datetime.utcnow().isoformat()  
@@ -87,7 +73,7 @@ def send_discord_detailed_log(report: ScanReport):
           
         response = requests.post(DISCORD_WEBHOOK_URL, json=payload)  
         if response.status_code == 204:  
-            print(f"✅ Log enviado para Discord: {top_owner}")  
+            print(f"✅ Log enviado para Discord")  
         else:  
             print(f"⚠️ Erro ao enviar para Discord: {response.status_code}")  
     except Exception as e:  
@@ -98,23 +84,20 @@ async def receive_scan_report(report: ScanReport):
     try:  
         print(f"\n📊 Novo Scan Recebido:")  
         print(f"   Job ID: {report.job_id}")  
-        print(f"   Scanner: {report.scanner_id}")  
         print(f"   Players: {report.player_count}")  
-        print(f"   Top Owner: {report.details.top_owner}")  
-        print(f"   Brainrots: {len(report.details.top_owner_brainrots)}")  
+        print(f"   Brainrots (10M+): {len(report.details.brainrots)}")  
           
         # Armazena no histórico  
         scan_history.append({  
             "timestamp": datetime.utcnow().isoformat(),  
             "job_id": report.job_id,  
-            "scanner_id": report.scanner_id,  
             "player_count": report.player_count,  
-            "top_owner": report.details.top_owner,  
-            "brainrot_count": len(report.details.top_owner_brainrots)  
+            "brainrot_count": len(report.details.brainrots)  
         })  
           
-        # Envia para Discord  
-        send_discord_detailed_log(report)  
+        # Envia para Discord apenas se houver brainrots  
+        if report.details.brainrots:  
+            send_discord_detailed_log(report)  
           
         return {"status": "ok", "message": "Scan recebido com sucesso"}  
     except Exception as e:  
@@ -130,23 +113,21 @@ async def add_server(server: ServerQueue):
     if server.job_id not in server_queue:  
         server_queue.append(server.job_id)  
         print(f"✅ Servidor adicionado à fila: {server.job_id} (Total: {len(server_queue)})")  
-    else:  
-        print(f"⚠️ Servidor já existe na fila: {server.job_id}")  
       
     return {"status": "ok", "queue_size": len(server_queue)}  
 @app.post("/add-job")  
 async def add_job(server: ServerQueue):  
-    """Alias para /add-server (compatibilidade)"""  
+    """Alias para /add-server"""  
     return await add_server(server)  
 @app.get("/next-server")  
 async def get_next_server(scanner_id: str = ""):  
     """Retorna o próximo servidor da fila"""  
     if server_queue:  
         next_job = server_queue.pop(0)  
-        print(f"🚀 Próximo servidor para {scanner_id}: {next_job} (Restantes: {len(server_queue)})")  
+        print(f"🚀 Próximo servidor: {next_job} (Restantes: {len(server_queue)})")  
         return {"job_id": next_job}  
     else:  
-        print(f"📭 Fila vazia para {scanner_id}")  
+        print(f"📭 Fila vazia")  
         return {"job_id": None}  
 @app.get("/servers")  
 async def get_servers():  
