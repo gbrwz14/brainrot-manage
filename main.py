@@ -9,14 +9,21 @@ app = FastAPI()
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")  
 API_PASSWORD = os.environ.get("PASSWORD", "default_password")  
 # Modelos  
+class Brainrot(BaseModel):  
+    name: str  
+    valuePerSecond: str  
+    valueNumeric: float  
+    owner: str  
+    rarity: str  
+    mutation: str  
 class ScanDetails(BaseModel):  
-    players: str  
-    value: Any  
-    brainrot: Any  
+    top_owner: str  
+    top_owner_brainrots: List[Brainrot]  
+    all_brainrots: List[Brainrot]  
 class ScanReport(BaseModel):  
     job_id: str  
-    has_rare: bool  
     scanner_id: str  
+    player_count: int  
     details: ScanDetails  
 class ServerQueue(BaseModel):  
     job_id: str  
@@ -24,39 +31,52 @@ class ServerQueue(BaseModel):
 server_queue: List[str] = []  
 scan_history: List[Dict] = []  
 def send_discord_detailed_log(report: ScanReport):  
-    """Envia o log formatado para o Discord com os novos detalhes solicitados"""  
+    """Envia o log formatado para o Discord"""  
     if not DISCORD_WEBHOOK_URL:  
         return  
       
     try:  
-        # Extrai os dados do brainrot  
-        brainrot_data = report.details.brainrot if isinstance(report.details.brainrot, dict) else {}  
+        top_owner = report.details.top_owner  
+        top_owner_brainrots = report.details.top_owner_brainrots  
           
-        if brainrot_data:  
-            nome = brainrot_data.get("nome", "Unknown")  
-            valor_por_segundo = brainrot_data.get("valor_por_segundo", "N/A")  
-            dono = brainrot_data.get("dono", "Unknown")  
-            raridade = brainrot_data.get("raridade", "Unknown")  
-            mutacao = brainrot_data.get("mutacao", "None")  
+        # Formata lista de brainrots  
+        brainrot_list = ""  
+        if top_owner_brainrots:  
+            for i, br in enumerate(top_owner_brainrots, 1):  
+                brainrot_list += f"{i}x {br.name} ({br.valuePerSecond})\n"  
         else:  
-            nome = "Nenhum"  
-            valor_por_segundo = "N/A"  
-            dono = "N/A"  
-            raridade = "N/A"  
-            mutacao = "N/A"  
+            brainrot_list = "Nenhum brainrot encontrado"  
           
-        # Formata a mensagem para o Discord  
+        # Cria o embed  
         embed = {  
-            "title": "🛰️ Scan de Servidor Completo",  
-            "color": 3447003,  
+            "title": "☠️ Scan de Servidor Completo",  
+            "color": 16711680,  # Vermelho  
             "fields": [  
-                {"name": "Job ID", "value": report.job_id, "inline": False},  
-                {"name": "👤 Nome do Brainrot", "value": nome, "inline": True},  
-                {"name": "💰 Valor por Segundo", "value": valor_por_segundo, "inline": True},  
-                {"name": "🧠 Dono", "value": dono, "inline": True},  
-                {"name": "✨ Raridade", "value": raridade, "inline": True},  
-                {"name": "🔄 Mutação", "value": mutacao, "inline": True},  
-                {"name": "🤖 Scanner", "value": report.scanner_id, "inline": True}  
+                {  
+                    "name": "☠️ Brainrots",  
+                    "value": f"```\n{brainrot_list}```",  
+                    "inline": False  
+                },  
+                {  
+                    "name": "🆔 Server ID",  
+                    "value": f"```\n{report.job_id}```",  
+                    "inline": False  
+                },  
+                {  
+                    "name": "👥 Players no Servidor",  
+                    "value": f"```\n{report.player_count}```",  
+                    "inline": False  
+                },  
+                {  
+                    "name": "🧠 Base com Maior Valor",  
+                    "value": f"```\n{top_owner}```",  
+                    "inline": False  
+                },  
+                {  
+                    "name": "🤖 Scanner",  
+                    "value": f"```\n{report.scanner_id}```",  
+                    "inline": False  
+                }  
             ],  
             "timestamp": datetime.utcnow().isoformat()  
         }  
@@ -67,7 +87,7 @@ def send_discord_detailed_log(report: ScanReport):
           
         response = requests.post(DISCORD_WEBHOOK_URL, json=payload)  
         if response.status_code == 204:  
-            print(f"✅ Log enviado para Discord: {nome}")  
+            print(f"✅ Log enviado para Discord: {top_owner}")  
         else:  
             print(f"⚠️ Erro ao enviar para Discord: {response.status_code}")  
     except Exception as e:  
@@ -79,15 +99,18 @@ async def receive_scan_report(report: ScanReport):
         print(f"\n📊 Novo Scan Recebido:")  
         print(f"   Job ID: {report.job_id}")  
         print(f"   Scanner: {report.scanner_id}")  
-        print(f"   Has Rare: {report.has_rare}")  
+        print(f"   Players: {report.player_count}")  
+        print(f"   Top Owner: {report.details.top_owner}")  
+        print(f"   Brainrots: {len(report.details.top_owner_brainrots)}")  
           
         # Armazena no histórico  
         scan_history.append({  
             "timestamp": datetime.utcnow().isoformat(),  
             "job_id": report.job_id,  
             "scanner_id": report.scanner_id,  
-            "has_rare": report.has_rare,  
-            "details": report.details.dict()  
+            "player_count": report.player_count,  
+            "top_owner": report.details.top_owner,  
+            "brainrot_count": len(report.details.top_owner_brainrots)  
         })  
           
         # Envia para Discord  
