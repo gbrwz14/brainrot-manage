@@ -103,19 +103,36 @@ async def add_server(server: ServerQueue):
     if not server.job_id:  
         raise HTTPException(status_code=400, detail="job_id é obrigatório")  
       
-    server_queue.append(server.job_id)  
-    print(f"✅ Servidor adicionado à fila: {server.job_id}")  
+    # Evita duplicatas  
+    if server.job_id not in server_queue:  
+        server_queue.append(server.job_id)  
+        print(f"✅ Servidor adicionado à fila: {server.job_id} (Total: {len(server_queue)})")  
+    else:  
+        print(f"⚠️ Servidor já existe na fila: {server.job_id}")  
+      
     return {"status": "ok", "queue_size": len(server_queue)}  
+@app.post("/add-job")  
+async def add_job(server: ServerQueue):  
+    """Alias para /add-server (compatibilidade)"""  
+    return await add_server(server)  
 @app.get("/next-server")  
 async def get_next_server(scanner_id: str = ""):  
     """Retorna o próximo servidor da fila"""  
     if server_queue:  
         next_job = server_queue.pop(0)  
-        print(f"🚀 Próximo servidor para {scanner_id}: {next_job}")  
+        print(f"🚀 Próximo servidor para {scanner_id}: {next_job} (Restantes: {len(server_queue)})")  
         return {"job_id": next_job}  
     else:  
         print(f"📭 Fila vazia para {scanner_id}")  
         return {"job_id": None}  
+@app.get("/servers")  
+async def get_servers():  
+    """Retorna lista de servidores na fila"""  
+    return {  
+        "queue_size": len(server_queue),  
+        "servers": server_queue,  
+        "history_count": len(scan_history)  
+    }  
 @app.get("/queue-status")  
 async def queue_status():  
     """Retorna status da fila"""  
