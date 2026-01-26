@@ -30,6 +30,7 @@ scan_history: List[Dict] = []
 def send_discord_detailed_log(report: ScanReport):  
     """Envia o log formatado para o Discord"""  
     if not DISCORD_WEBHOOK_URL:  
+        print("⚠️ DISCORD_WEBHOOK_URL não configurada!")  
         return  
       
     try:  
@@ -41,7 +42,7 @@ def send_discord_detailed_log(report: ScanReport):
             for br in brainrots:  
                 brainrot_list += f"{br.count}x {br.name} {br.valuePerSecond}\n"  
         else:  
-            brainrot_list = "Nenhum brainrot com 10M+ encontrado"  
+            brainrot_list = "Nenhum brainrot com 1M+ encontrado"  
           
         # Cria o embed  
         embed = {  
@@ -71,13 +72,15 @@ def send_discord_detailed_log(report: ScanReport):
             "embeds": [embed]  
         }  
           
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload)  
+        print(f"📤 Enviando para Discord: {DISCORD_WEBHOOK_URL}")  
+        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)  
+          
         if response.status_code == 204:  
-            print(f"✅ Log enviado para Discord")  
+            print(f"✅ Log enviado para Discord com sucesso!")  
         else:  
-            print(f"⚠️ Erro ao enviar para Discord: {response.status_code}")  
+            print(f"❌ Erro ao enviar para Discord: {response.status_code} - {response.text}")  
     except Exception as e:  
-        print(f"❌ Erro ao enviar log para Discord: {e}")  
+        print(f"❌ Erro ao enviar log para Discord: {str(e)}")  
 @app.post("/scan-report")  
 async def receive_scan_report(report: ScanReport):  
     """Recebe relatório de scan do worker"""  
@@ -85,7 +88,13 @@ async def receive_scan_report(report: ScanReport):
         print(f"\n📊 Novo Scan Recebido:")  
         print(f"   Job ID: {report.job_id}")  
         print(f"   Players: {report.player_count}")  
-        print(f"   Brainrots (10M+): {len(report.details.brainrots)}")  
+        print(f"   Brainrots (1M+): {len(report.details.brainrots)}")  
+          
+        # Mostra os brainrots recebidos  
+        if report.details.brainrots:  
+            print(f"   Brainrots detectados:")  
+            for br in report.details.brainrots:  
+                print(f"     - {br.count}x {br.name} ({br.valuePerSecond})")  
           
         # Armazena no histórico  
         scan_history.append({  
@@ -97,11 +106,14 @@ async def receive_scan_report(report: ScanReport):
           
         # Envia para Discord apenas se houver brainrots  
         if report.details.brainrots:  
+            print("📤 Enviando para Discord...")  
             send_discord_detailed_log(report)  
+        else:  
+            print("⏭️ Nenhum brainrot para enviar ao Discord")  
           
         return {"status": "ok", "message": "Scan recebido com sucesso"}  
     except Exception as e:  
-        print(f"❌ Erro ao processar scan: {e}")  
+        print(f"❌ Erro ao processar scan: {str(e)}")  
         raise HTTPException(status_code=400, detail=str(e))  
 @app.post("/add-server")  
 async def add_server(server: ServerQueue):  
@@ -152,7 +164,11 @@ async def get_history(limit: int = 10):
 @app.get("/health")  
 async def health_check():  
     """Health check"""  
-    return {"status": "ok", "webhook_configured": bool(DISCORD_WEBHOOK_URL)}  
+    return {  
+        "status": "ok",   
+        "webhook_configured": bool(DISCORD_WEBHOOK_URL),  
+        "webhook_url": DISCORD_WEBHOOK_URL[:50] + "..." if DISCORD_WEBHOOK_URL else "Não configurada"  
+    }  
 if __name__ == "__main__":  
     import uvicorn  
     port = int(os.environ.get("PORT", 8080))  
