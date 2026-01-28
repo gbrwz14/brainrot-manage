@@ -13,6 +13,7 @@ app = FastAPI()
 # --- ARQUIVO DE PERSISTÊNCIA ---  
 QUEUE_FILE = "server_queue.json"  
 INVALID_SERVERS_FILE = "invalid_servers.json"  
+STATUS_MESSAGE_FILE = "status_message.json"  
 # --- CONFIGURAÇÃO DAS WEBHOOKS POR CATEGORIA ---  
 WEBHOOKS = {  
     "10-50M": "https://discord.com/api/webhooks/1465203465524609024/dqNqGxjE5rnZS_NWIlOvCUK8dkoaTUB9S8Sh-bmyCpAngVE3L93jyk3rrUZlqF05FXTF",  
@@ -44,6 +45,7 @@ server_queue: List[str] = []
 scan_history: List[Dict] = []  
 invalid_servers: Dict[str, float] = {}  
 active_accounts: Dict[str, float] = {}  
+status_message_id = None  # ID da mensagem de status  
 INVALID_SERVER_COOLDOWN = 300  
 ACCOUNT_TIMEOUT = 600  # 10 minutos  
 executor = ThreadPoolExecutor(max_workers=10)  
@@ -91,8 +93,24 @@ def save_invalid_servers():
             json.dump(invalid_servers, f, indent=2)  
     except Exception as e:  
         print(f"❌ Erro ao salvar servidores inválidos: {str(e)}")  
+def load_status_message_id():  
+    try:  
+        if os.path.exists(STATUS_MESSAGE_FILE):  
+            with open(STATUS_MESSAGE_FILE, 'r') as f:  
+                data = json.load(f)  
+                return data.get("message_id")  
+    except Exception as e:  
+        print(f"⚠️ Erro ao carregar ID da mensagem: {str(e)}")  
+    return None  
+def save_status_message_id(message_id):  
+    try:  
+        with open(STATUS_MESSAGE_FILE, 'w') as f:  
+            json.dump({"message_id": message_id}, f)  
+    except Exception as e:  
+        print(f"❌ Erro ao salvar ID da mensagem: {str(e)}")  
 server_queue = load_queue()  
 invalid_servers = load_invalid_servers()  
+status_message_id = load_status_message_id()  
 # --- FUNÇÕES DE ESTATÍSTICAS ---  
 def update_stats(report: ScanReport):  
     """Atualiza estatísticas globais"""  
@@ -130,15 +148,15 @@ def get_active_accounts_count():
       
     return active_count  
 def get_target_webhook(value: float):  
-    if value >= 1_000_000_000:   
+    if value >= 1_000_000_000:  
         return WEBHOOKS["1B+"]  
-    if value >= 500_000_000:   
+    if value >= 500_000_000:  
         return WEBHOOKS["500M-1B"]  
-    if value >= 100_000_000:   
+    if value >= 100_000_000:  
         return WEBHOOKS["100M-500M"]  
-    if value >= 50_000_000:   
+    if value >= 50_000_000:  
         return WEBHOOKS["50-100M"]  
-    if value >= 10_000_000:   
+    if value >= 10_000_000:  
         return WEBHOOKS["10-50M"]  
     return None  
 def send_discord_async(embed, target_webhook):  
@@ -192,7 +210,9 @@ def send_discord_detailed_log(report: ScanReport):
     except Exception as e:  
         print(f"❌ Erro ao processar Discord: {str(e)}")  
 def send_status_to_discord():  
-    """Envia status para Discord a cada 5 minutos"""  
+    """Envia ou edita status para Discord a cada 5 minutos"""  
+    global status_message_id  
+      
     try:  
         active_count = get_active_accounts_count()  
         total_accounts = 25  # Mude para seu número de contas  
@@ -209,6 +229,7 @@ def send_status_to_discord():
         else:  
             color = 16711680  # Vermelho  
           
+        # Formata os dados em snake_case para exibição  
         embed = {  
             "title": "📊 STATUS DO NOTIFIER",  
             "color": color,  
@@ -221,15 +242,15 @@ def send_status_to_discord():
                 {  
                     "name": "🛰️ SISTEMA",  
                     "value": f"""  
-**Fila:** {len(server_queue)} IDs  
-**Inválidos:** {len(invalid_servers)}  
-**Scans totais:** {stats['total_scans']}  
+**fila:** {len(server_queue)} IDs  
+**invalidos:** {len(invalid_servers)}  
+**scans_totais:** {stats['total_scans']}  
                     """,  
                     "inline": False  
                 },  
                 {  
                     "name": "☠️ BRAINROTS ENCONTRADOS",  
-                    "value": f"**Total:** {total_brainrots}",  
+                    "value": f"**total:** {total_brainrots}",  
                     "inline": False  
                 },  
                 {  
@@ -262,10 +283,49 @@ def send_status_to_discord():
         }  
           
         payload = {"embeds": [embed]}  
-        requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-        print(f"✅ Status enviado: {active_count}/{total_accounts} contas ativas")  
+          
+        # Se já existe mensagem, edita ela  
+        if status_message_id:  
+            try:  
+                # Extrai webhook_id e message_token do webhook  
+                webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
+                webhook_id = webhook_parts[0]  
+                webhook_token = webhook_parts[1]  
+                  
+                # URL para editar mensagem  
+                edit_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}/messages/{status_message_id}"  
+                  
+                response = requests.patch(edit_url, json=payload, timeout=5)  
+                  
+                if response.status_code == 200:  
+                    print(f"✅ Status editado: {active_count}/{total_accounts} contas ativas")  
+                else:  
+                    # Se falhar ao editar, envia nova mensagem  
+                    print(f"⚠️ Falha ao editar mensagem, enviando nova...")  
+                    response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
+                    if response.status_code == 204:  
+                        data = response.json()  
+                        status_message_id = data.get("id")  
+                        save_status_message_id(status_message_id)  
+                        print(f"✅ Nova mensagem de status enviada: {status_message_id}")  
+            except Exception as e:  
+                print(f"⚠️ Erro ao editar mensagem: {str(e)}, enviando nova...")  
+                response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
+                if response.status_code == 204:  
+                    data = response.json()  
+                    status_message_id = data.get("id")  
+                    save_status_message_id(status_message_id)  
+        else:  
+            # Primeira vez, envia nova mensagem  
+            response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
+            if response.status_code == 204:  
+                data = response.json()  
+                status_message_id = data.get("id")  
+                save_status_message_id(status_message_id)  
+                print(f"✅ Primeira mensagem de status enviada: {status_message_id}")  
+      
     except Exception as e:  
-        print(f"❌ Erro ao enviar status: {str(e)}")  
+        print(f"❌ Erro ao enviar/editar status: {str(e)}")  
 def status_sender():  
     """Thread para enviar status a cada 5 minutos"""  
     print("🚀 Thread de status iniciada")  
