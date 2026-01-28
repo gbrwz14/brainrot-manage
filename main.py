@@ -260,12 +260,19 @@ def send_status_to_discord():
         print(f"❌ Erro ao enviar status: {str(e)}")  
 def status_sender():  
     """Thread para enviar status a cada 5 minutos"""  
+    print("🚀 Thread de status iniciada")  
     while True:  
-        time.sleep(300)  # 5 minutos  
-        send_status_to_discord()  
+        try:  
+            time.sleep(300)  # 5 minutos  
+            send_status_to_discord()  
+        except Exception as e:  
+            print(f"❌ Erro na thread de status: {str(e)}")  
+            time.sleep(60)  # Tenta novamente em 1 min  
 # Inicia thread de status  
+print("🔄 Iniciando thread de status...")  
 status_thread = threading.Thread(target=status_sender, daemon=True)  
 status_thread.start()  
+print("✅ Thread de status iniciada")  
 def is_server_invalid(job_id: str) -> bool:  
     if job_id in invalid_servers:  
         time_diff = datetime.utcnow().timestamp() - invalid_servers[job_id]  
@@ -449,6 +456,11 @@ async def get_stats():
         "uptime": "24/7",  
         "timestamp": datetime.utcnow().isoformat()  
     }  
+@app.get("/test-status")  
+async def test_status():  
+    """Testa envio de status"""  
+    send_status_to_discord()  
+    return {"status": "ok", "message": "Status enviado para teste"}  
 @app.get("/health")  
 async def health_check():  
     return {"status": "ok"}  
@@ -471,6 +483,7 @@ async def root():
             "POST /clear-invalid": "Limpar inválidos",  
             "POST /refresh-queue": "Reset completo",  
             "GET /stats": "Estatísticas completas",  
+            "GET /test-status": "Testar envio de status",  
             "GET /health": "Health check"  
         }  
     }  
