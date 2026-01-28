@@ -40,7 +40,7 @@ server_queue: List[str] = []
 scan_history: List[Dict] = []  
 invalid_servers: Dict[str, float] = {}  
 INVALID_SERVER_COOLDOWN = 300  
-executor = ThreadPoolExecutor(max_workers=10)  # ← PROCESSAMENTO PARALELO  
+executor = ThreadPoolExecutor(max_workers=10)  
 # --- FUNÇÕES DE PERSISTÊNCIA ---  
 def load_queue():  
     try:  
@@ -124,7 +124,6 @@ def send_discord_detailed_log(report: ScanReport):
             "timestamp": datetime.utcnow().isoformat()  
         }  
           
-        # Envia de forma assíncrona  
         executor.submit(send_discord_async, embed, target_webhook)  
           
     except Exception as e:  
@@ -141,6 +140,7 @@ def is_server_invalid(job_id: str) -> bool:
 def mark_server_invalid(job_id: str):  
     invalid_servers[job_id] = datetime.utcnow().timestamp()  
     save_invalid_servers()  
+    print(f"⚠️ Servidor marcado como inválido: {job_id}")  
 # --- ROTAS ---  
 @app.post("/scan-report")  
 async def receive_scan_report(report: ScanReport):  
@@ -154,7 +154,7 @@ async def receive_scan_report(report: ScanReport):
           
         if report.details.brainrots:  
             send_discord_detailed_log(report)  
-            
+              
         return {"status": "ok", "message": "Scan recebido com sucesso"}  
     except Exception as e:  
         raise HTTPException(status_code=400, detail=str(e))  
@@ -220,10 +220,114 @@ async def queue_status():
         "last_scans": scan_history[-10:] if scan_history else [],  
         "timestamp": datetime.utcnow().isoformat()  
     }  
+# --- NOVAS ROTAS PARA LIMPEZA ---  
+@app.post("/clear-queue")  
+async def clear_queue():  
+    """Limpa toda a fila de servidores"""  
+    global server_queue  
+    cleared_count = len(server_queue)  
+    server_queue = []  
+    save_queue()  
+    print(f"🧹 Fila limpa! {cleared_count} servidores removidos")  
+    return {  
+        "status": "ok",  
+        "message": f"Fila limpa! {cleared_count} servidores removidos",  
+        "queue_size": 0  
+    }  
+@app.post("/clear-invalid")  
+async def clear_invalid():  
+    """Limpa a lista de servidores inválidos"""  
+    global invalid_servers  
+    cleared_count = len(invalid_servers)  
+    invalid_servers = {}  
+    save_invalid_servers()  
+    print(f"🧹 Inválidos limpos! {cleared_count} removidos")  
+    return {  
+        "status": "ok",  
+        "message": f"Servidores inválidos limpos! {cleared_count} removidos",  
+        "invalid_count": 0  
+    }  
+@app.post("/refresh-queue")  
+async def refresh_queue():  
+    """Limpa TUDO e prepara para novos IDs (RESET COMPLETO)"""  
+    global server_queue, invalid_servers  
+    queue_count = len(server_queue)  
+    invalid_count = len(invalid_servers)  
+      
+    server_queue = []  
+    invalid_servers = {}  
+    save_queue()  
+    save_invalid_servers()  
+      
+    print(f"🔄 Sistema resetado! Fila: {queue_count} | Inválidos: {invalid_count}")  
+    return {  
+        "status": "ok",  
+        "message": "✅ Sistema resetado! Pronto para novos IDs",  
+        "cleared_queue": queue_count,  
+        "cleared_invalid": invalid_count,  
+        "queue_size": 0,  
+        "invalid_count": 0  
+    }  
+@app.get("/queue-health")  
+async def queue_health():  
+    """Mostra saúde da fila"""  
+    if len(server_queue) > 100:  
+        health = "✅ EXCELENTE"  
+    elif len(server_queue) > 50:  
+        health = "✅ BOM"  
+    elif len(server_queue) > 10:  
+        health = "⚠️ BAIXO"  
+    elif len(server_queue) > 0:  
+        health = "⚠️ CRÍTICO"  
+    else:  
+        health = "❌ VAZIO"  
+      
+    return {  
+        "status": "ok",  
+        "queue_size": len(server_queue),  
+        "invalid_count": len(invalid_servers),  
+        "total_processed": len(scan_history),  
+        "health": health,  
+        "timestamp": datetime.utcnow().isoformat()  
+    }  
+@app.get("/stats")  
+async def get_stats():  
+    """Estatísticas completas do sistema"""  
+    return {  
+        "status": "ok",  
+        "queue_size": len(server_queue),  
+        "invalid_servers": len(invalid_servers),  
+        "total_scans": len(scan_history),  
+        "uptime": "24/7",  
+        "timestamp": datetime.utcnow().isoformat()  
+    }  
 @app.get("/health")  
 async def health_check():  
     return {"status": "ok"}  
+@app.get("/")  
+async def root():  
+    """Informações da API"""  
+    return {  
+        "name": "Brainrot Scanner API",  
+        "version": "3.0",  
+        "status": "running",  
+        "endpoints": {  
+            "POST /scan-report": "Receber relatório de scan",  
+            "POST /add-job": "Adicionar servidor à fila",  
+            "GET /next-server": "Obter próximo servidor",  
+            "GET /servers": "Ver todos os servidores",  
+            "GET /queue-status": "Status da fila",  
+            "GET /queue-health": "Saúde da fila",  
+            "GET /invalid-servers": "Servidores inválidos",  
+            "POST /clear-queue": "Limpar fila",  
+            "POST /clear-invalid": "Limpar inválidos",  
+            "POST /refresh-queue": "Reset completo",  
+            "GET /stats": "Estatísticas",  
+            "GET /health": "Health check"  
+        }  
+    }  
 if __name__ == "__main__":  
     import uvicorn  
     port = int(os.environ.get("PORT", 8080))  
+    print(f"🚀 Iniciando servidor na porta {port}")  
     uvicorn.run(app, host="0.0.0.0", port=port)  
