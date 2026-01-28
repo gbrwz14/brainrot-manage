@@ -6,6 +6,8 @@ import requests
 from datetime import datetime  
 import json  
 import asyncio  
+import time  
+import threading  
 from concurrent.futures import ThreadPoolExecutor  
 app = FastAPI()  
 # --- ARQUIVO DE PERSISTÊNCIA ---  
@@ -19,6 +21,8 @@ WEBHOOKS = {
     "500M-1B": "https://discord.com/api/webhooks/1465204919337484400/JgQ7blnGnBK1BLRC5jzxgB6Ud2sXsk8pQMwUFqZ1JRDMFAOkKAnElw6xJlQC0sspirKC",  
     "1B+": "https://discord.com/api/webhooks/1465478594372567278/La9Semqa4eWKucTZJew8GpuNLATC3OJL0tGT5tZLkRaRbyQEZK6Fn-L5hvP9ZlKObjG1"  
 }  
+# --- WEBHOOK DE STATUS ---  
+STATUS_WEBHOOK = "https://discord.com/api/webhooks/1466200965416751218/vmfMbqibVu-NAMKbuz63Eeo1FEPuHKIVJdFaA6zMEQIPyTFSpDfSeXmQ_Dv5XxjqTgzj"  
 # Modelos  
 class Brainrot(BaseModel):  
     name: str  
@@ -39,8 +43,23 @@ class ServerQueue(BaseModel):
 server_queue: List[str] = []  
 scan_history: List[Dict] = []  
 invalid_servers: Dict[str, float] = {}  
+active_accounts: Dict[str, float] = {}  
 INVALID_SERVER_COOLDOWN = 300  
+ACCOUNT_TIMEOUT = 600  # 10 minutos  
 executor = ThreadPoolExecutor(max_workers=10)  
+# --- ESTATÍSTICAS GLOBAIS ---  
+stats = {  
+    "total_scans": 0,  
+    "total_brainrots": 0,  
+    "brainrots_by_category": {  
+        "10-50M": 0,  
+        "50-100M": 0,  
+        "100M-500M": 0,  
+        "500M-1B": 0,  
+        "1B+": 0  
+    },  
+    "last_update": datetime.utcnow()  
+}  
 # --- FUNÇÕES DE PERSISTÊNCIA ---  
 def load_queue():  
     try:  
@@ -74,6 +93,42 @@ def save_invalid_servers():
         print(f"❌ Erro ao salvar servidores inválidos: {str(e)}")  
 server_queue = load_queue()  
 invalid_servers = load_invalid_servers()  
+# --- FUNÇÕES DE ESTATÍSTICAS ---  
+def update_stats(report: ScanReport):  
+    """Atualiza estatísticas globais"""  
+    global stats  
+    stats["total_scans"] += 1  
+      
+    for brainrot in report.details.brainrots:  
+        stats["total_brainrots"] += 1  
+          
+        # Categoriza por valor  
+        if brainrot.valueNumeric >= 1_000_000_000:  
+            stats["brainrots_by_category"]["1B+"] += 1  
+        elif brainrot.valueNumeric >= 500_000_000:  
+            stats["brainrots_by_category"]["500M-1B"] += 1  
+        elif brainrot.valueNumeric >= 100_000_000:  
+            stats["brainrots_by_category"]["100M-500M"] += 1  
+        elif brainrot.valueNumeric >= 50_000_000:  
+            stats["brainrots_by_category"]["50-100M"] += 1  
+        else:  
+            stats["brainrots_by_category"]["10-50M"] += 1  
+def mark_account_active(job_id: str):  
+    """Marca uma conta como ativa"""  
+    active_accounts[job_id] = datetime.utcnow().timestamp()  
+def get_active_accounts_count():  
+    """Retorna número de contas ativas"""  
+    current_time = datetime.utcnow().timestamp()  
+    active_count = 0  
+      
+    for job_id, last_seen in list(active_accounts.items()):  
+        time_diff = current_time - last_seen  
+        if time_diff < ACCOUNT_TIMEOUT:  
+            active_count += 1  
+        else:  
+            del active_accounts[job_id]  
+      
+    return active_count  
 def get_target_webhook(value: float):  
     if value >= 1_000_000_000: return WEBHOOKS["1B+"]  
     if value >= 500_000_000: return WEBHOOKS["500M-1B"]  
@@ -128,6 +183,89 @@ def send_discord_detailed_log(report: ScanReport):
           
     except Exception as e:  
         print(f"❌ Erro ao processar Discord: {str(e)}")  
+def send_status_to_discord():  
+    """Envia status para Discord a cada 5 minutos"""  
+    try:  
+        active_count = get_active_accounts_count()  
+        total_accounts = 25  # Mude para seu número de contas  
+        percentage = (active_count / total_accounts) * 100 if total_accounts > 0 else 0  
+          
+        categories = stats["brainrots_by_category"]  
+        total_brainrots = stats["total_brainrots"]  
+          
+        # Determina cor baseado na saúde  
+        if percentage >= 80:  
+            color = 3066993  # Verde  
+        elif percentage >= 50:  
+            color = 16776960  # Amarelo  
+        else:  
+            color = 16711680  # Vermelho  
+          
+        embed = {  
+            "title": "📊 STATUS DO NOTIFIER",  
+            "color": color,  
+            "fields": [  
+                {  
+                    "name": "🤖 CONTAS ATIVAS",  
+                    "value": f"**{active_count}/{total_accounts}** ({percentage:.1f}%)",  
+                    "inline": False  
+                },  
+                {  
+                    "name": "🛰️ SISTEMA",  
+                    "value": f"""  
+**Fila:** {len(server_queue)} IDs  
+**Inválidos:** {len(invalid_servers)}  
+**Scans totais:** {stats['total_scans']}  
+                    """,  
+                    "inline": False  
+                },  
+                {  
+                    "name": "☠️ BRAINROTS ENCONTRADOS",  
+                    "value": f"**Total:** {total_brainrots}",  
+                    "inline": False  
+                },  
+                {  
+                    "name": "💰 10-50M",  
+                    "value": f"{categories['10-50M']}",  
+                    "inline": True  
+                },  
+                {  
+                    "name": "💰 50-100M",  
+                    "value": f"{categories['50-100M']}",  
+                    "inline": True  
+                },  
+                {  
+                    "name": "💰 100M-500M",  
+                    "value": f"{categories['100M-500M']}",  
+                    "inline": True  
+                },  
+                {  
+                    "name": "💰 500M-1B",  
+                    "value": f"{categories['500M-1B']}",  
+                    "inline": True  
+                },  
+                {  
+                    "name": "💰 1B+",  
+                    "value": f"{categories['1B+']}",  
+                    "inline": True  
+                }  
+            ],  
+            "timestamp": datetime.utcnow().isoformat()  
+        }  
+          
+        payload = {"embeds": [embed]}  
+        requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
+        print(f"✅ Status enviado: {active_count}/{total_accounts} contas ativas")  
+    except Exception as e:  
+        print(f"❌ Erro ao enviar status: {str(e)}")  
+def status_sender():  
+    """Thread para enviar status a cada 5 minutos"""  
+    while True:  
+        time.sleep(300)  # 5 minutos  
+        send_status_to_discord()  
+# Inicia thread de status  
+status_thread = threading.Thread(target=status_sender, daemon=True)  
+status_thread.start()  
 def is_server_invalid(job_id: str) -> bool:  
     if job_id in invalid_servers:  
         time_diff = datetime.utcnow().timestamp() - invalid_servers[job_id]  
@@ -145,12 +283,18 @@ def mark_server_invalid(job_id: str):
 @app.post("/scan-report")  
 async def receive_scan_report(report: ScanReport):  
     try:  
+        # Marca conta como ativa  
+        mark_account_active(report.job_id)  
+          
         scan_history.append({  
             "timestamp": datetime.utcnow().isoformat(),  
             "job_id": report.job_id,  
             "player_count": report.player_count,  
             "brainrot_count": len(report.details.brainrots)  
         })  
+          
+        # Atualiza estatísticas  
+        update_stats(report)  
           
         if report.details.brainrots:  
             send_discord_detailed_log(report)  
@@ -220,7 +364,6 @@ async def queue_status():
         "last_scans": scan_history[-10:] if scan_history else [],  
         "timestamp": datetime.utcnow().isoformat()  
     }  
-# --- NOVAS ROTAS PARA LIMPEZA ---  
 @app.post("/clear-queue")  
 async def clear_queue():  
     """Limpa toda a fila de servidores"""  
@@ -293,11 +436,16 @@ async def queue_health():
 @app.get("/stats")  
 async def get_stats():  
     """Estatísticas completas do sistema"""  
+    active_count = get_active_accounts_count()  
+      
     return {  
         "status": "ok",  
         "queue_size": len(server_queue),  
         "invalid_servers": len(invalid_servers),  
-        "total_scans": len(scan_history),  
+        "total_scans": stats["total_scans"],  
+        "total_brainrots": stats["total_brainrots"],  
+        "active_accounts": active_count,  
+        "brainrots_by_category": stats["brainrots_by_category"],  
         "uptime": "24/7",  
         "timestamp": datetime.utcnow().isoformat()  
     }  
@@ -309,7 +457,7 @@ async def root():
     """Informações da API"""  
     return {  
         "name": "Brainrot Scanner API",  
-        "version": "3.0",  
+        "version": "4.0",  
         "status": "running",  
         "endpoints": {  
             "POST /scan-report": "Receber relatório de scan",  
@@ -322,7 +470,7 @@ async def root():
             "POST /clear-queue": "Limpar fila",  
             "POST /clear-invalid": "Limpar inválidos",  
             "POST /refresh-queue": "Reset completo",  
-            "GET /stats": "Estatísticas",  
+            "GET /stats": "Estatísticas completas",  
             "GET /health": "Health check"  
         }  
     }  
