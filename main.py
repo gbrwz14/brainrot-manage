@@ -23,11 +23,11 @@ WEBHOOKS = {
 }  
 # --- WEBHOOK DE STATUS ---  
 STATUS_WEBHOOK = "https://discord.com/api/webhooks/1466200965416751218/vmfMbqibVu-NAMKbuz63Eeo1FEPuHKIVJdFaA6zMEQIPyTFSpDfSeXmQ_Dv5XxjqTgzj"  
-# Modelos  
+# --- MODELOS ---  
 class Brainrot(BaseModel):  
     name: str  
-    valuePerSecond: str  
-    valueNumeric: float  
+    value_per_second: str  
+    value_numeric: float  
     count: int  
     rarity: str  
 class ScanDetails(BaseModel):  
@@ -39,7 +39,7 @@ class ScanReport(BaseModel):
     details: ScanDetails  
 class ServerQueue(BaseModel):  
     job_id: str  
-# Armazenamento em memória  
+# --- ARMAZENAMENTO EM MEMÓRIA ---  
 server_queue: List[str] = []  
 scan_history: List[Dict] = []  
 invalid_servers: Dict[str, float] = {}  
@@ -103,13 +103,13 @@ def update_stats(report: ScanReport):
         stats["total_brainrots"] += 1  
           
         # Categoriza por valor  
-        if brainrot.valueNumeric >= 1_000_000_000:  
+        if brainrot.value_numeric >= 1_000_000_000:  
             stats["brainrots_by_category"]["1B+"] += 1  
-        elif brainrot.valueNumeric >= 500_000_000:  
+        elif brainrot.value_numeric >= 500_000_000:  
             stats["brainrots_by_category"]["500M-1B"] += 1  
-        elif brainrot.valueNumeric >= 100_000_000:  
+        elif brainrot.value_numeric >= 100_000_000:  
             stats["brainrots_by_category"]["100M-500M"] += 1  
-        elif brainrot.valueNumeric >= 50_000_000:  
+        elif brainrot.value_numeric >= 50_000_000:  
             stats["brainrots_by_category"]["50-100M"] += 1  
         else:  
             stats["brainrots_by_category"]["10-50M"] += 1  
@@ -130,11 +130,16 @@ def get_active_accounts_count():
       
     return active_count  
 def get_target_webhook(value: float):  
-    if value >= 1_000_000_000: return WEBHOOKS["1B+"]  
-    if value >= 500_000_000: return WEBHOOKS["500M-1B"]  
-    if value >= 100_000_000: return WEBHOOKS["100M-500M"]  
-    if value >= 50_000_000: return WEBHOOKS["50-100M"]  
-    if value >= 10_000_000: return WEBHOOKS["10-50M"]  
+    if value >= 1_000_000_000:   
+        return WEBHOOKS["1B+"]  
+    if value >= 500_000_000:   
+        return WEBHOOKS["500M-1B"]  
+    if value >= 100_000_000:   
+        return WEBHOOKS["100M-500M"]  
+    if value >= 50_000_000:   
+        return WEBHOOKS["50-100M"]  
+    if value >= 10_000_000:   
+        return WEBHOOKS["10-50M"]  
     return None  
 def send_discord_async(embed, target_webhook):  
     """Envia para Discord de forma assíncrona"""  
@@ -148,14 +153,17 @@ def send_discord_detailed_log(report: ScanReport):
         brainrots = report.details.brainrots  
         if not brainrots:  
             return  
-        top_value = max([br.valueNumeric for br in brainrots])  
+          
+        top_value = max([br.value_numeric for br in brainrots])  
         target_webhook = get_target_webhook(top_value)  
           
         if not target_webhook:  
             return  
+          
         brainrot_list = ""  
         for br in brainrots:  
-            brainrot_list += f"{br.count}x {br.name} {br.valuePerSecond}\n"  
+            brainrot_list += f"{br.count}x {br.name} {br.value_per_second}\n"  
+          
         embed = {  
             "title": "☠️ Brainrots Detectados",  
             "color": 16711680,  
@@ -268,7 +276,7 @@ def status_sender():
         except Exception as e:  
             print(f"❌ Erro na thread de status: {str(e)}")  
             time.sleep(60)  # Tenta novamente em 1 min  
-# Inicia thread de status  
+# --- INICIA THREAD DE STATUS ---  
 print("🔄 Iniciando thread de status...")  
 status_thread = threading.Thread(target=status_sender, daemon=True)  
 status_thread.start()  
@@ -333,7 +341,7 @@ async def get_next_server(scanner_id: str = ""):
 @app.post("/mark-invalid")  
 async def mark_invalid(server: ServerQueue):  
     mark_server_invalid(server.job_id)  
-    return {"status": "ok", "message": f"Servidor marcado como inválido"}  
+    return {"status": "ok", "message": "Servidor marcado como inválido"}  
 @app.get("/servers")  
 async def get_servers():  
     return {  
