@@ -209,6 +209,26 @@ def send_discord_detailed_log(report: ScanReport):
           
     except Exception as e:  
         print(f"❌ Erro ao processar Discord: {str(e)}")  
+def delete_previous_message(message_id):  
+    """Deleta a mensagem anterior"""  
+    try:  
+        webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
+        webhook_id = webhook_parts[0]  
+        webhook_token = webhook_parts[1]  
+          
+        delete_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}"  
+          
+        response = requests.delete(delete_url, timeout=5)  
+          
+        if response.status_code == 204:  
+            print(f"✅ Mensagem anterior deletada: {message_id}")  
+            return True  
+        else:  
+            print(f"⚠️ Falha ao deletar mensagem (status {response.status_code})")  
+            return False  
+    except Exception as e:  
+        print(f"⚠️ Erro ao deletar mensagem: {str(e)}")  
+        return False  
 def send_status_to_discord():  
     """Envia ou edita status para Discord a cada 5 minutos"""  
     global status_message_id  
@@ -284,45 +304,38 @@ def send_status_to_discord():
           
         payload = {"embeds": [embed]}  
           
-        # Se já existe mensagem, edita ela  
+        # Se já existe mensagem, tenta editar  
         if status_message_id:  
             try:  
-                # Extrai webhook_id e message_token do webhook  
                 webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
                 webhook_id = webhook_parts[0]  
                 webhook_token = webhook_parts[1]  
                   
-                # URL para editar mensagem  
                 edit_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}/messages/{status_message_id}"  
                   
                 response = requests.patch(edit_url, json=payload, timeout=5)  
                   
                 if response.status_code == 200:  
                     print(f"✅ Status editado: {active_count}/{total_accounts} contas ativas")  
+                    return  
                 else:  
-                    # Se falhar ao editar, envia nova mensagem  
-                    print(f"⚠️ Falha ao editar mensagem, enviando nova...")  
-                    response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-                    if response.status_code == 200:  
-                        data = response.json()  
-                        status_message_id = data.get("id")  
-                        save_status_message_id(status_message_id)  
-                        print(f"✅ Nova mensagem de status enviada: {status_message_id}")  
+                    # Se falhar ao editar, deleta a anterior e envia nova  
+                    print(f"⚠️ Falha ao editar, deletando anterior e enviando nova...")  
+                    delete_previous_message(status_message_id)  
+                    status_message_id = None  
             except Exception as e:  
-                print(f"⚠️ Erro ao editar mensagem: {str(e)}, enviando nova...")  
-                response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-                if response.status_code == 200:  
-                    data = response.json()  
-                    status_message_id = data.get("id")  
-                    save_status_message_id(status_message_id)  
-        else:  
-            # Primeira vez, envia nova mensagem  
-            response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-            if response.status_code == 200:  
-                data = response.json()  
-                status_message_id = data.get("id")  
-                save_status_message_id(status_message_id)  
-                print(f"✅ Primeira mensagem de status enviada: {status_message_id}")  
+                print(f"⚠️ Erro ao editar mensagem: {str(e)}, deletando anterior...")  
+                delete_previous_message(status_message_id)  
+                status_message_id = None  
+          
+        # Envia nova mensagem  
+        response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
+          
+        if response.status_code == 200:  
+            data = response.json()  
+            status_message_id = data.get("id")  
+            save_status_message_id(status_message_id)  
+            print(f"✅ Nova mensagem de status enviada: {status_message_id}")  
       
     except Exception as e:  
         print(f"❌ Erro ao enviar/editar status: {str(e)}")  
