@@ -229,7 +229,7 @@ def send_status_to_discord():
         else:  
             color = 16711680  # Vermelho  
           
-        # Formata os dados em snake_case para exibição  
+        # Formata os dados com nomes em PascalCase  
         embed = {  
             "title": "📊 STATUS DO NOTIFIER",  
             "color": color,  
@@ -242,15 +242,15 @@ def send_status_to_discord():
                 {  
                     "name": "🛰️ SISTEMA",  
                     "value": f"""  
-**fila:** {len(server_queue)} IDs  
-**invalidos:** {len(invalid_servers)}  
-**scans_totais:** {stats['total_scans']}  
+**Fila:** {len(server_queue)} IDs  
+**Inválidos:** {len(invalid_servers)}  
+**Scans Totais:** {stats['total_scans']}  
                     """,  
                     "inline": False  
                 },  
                 {  
                     "name": "☠️ BRAINROTS ENCONTRADOS",  
-                    "value": f"**total:** {total_brainrots}",  
+                    "value": f"**Total:** {total_brainrots}",  
                     "inline": False  
                 },  
                 {  
@@ -303,7 +303,7 @@ def send_status_to_discord():
                     # Se falhar ao editar, envia nova mensagem  
                     print(f"⚠️ Falha ao editar mensagem, enviando nova...")  
                     response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-                    if response.status_code == 204:  
+                    if response.status_code == 200:  
                         data = response.json()  
                         status_message_id = data.get("id")  
                         save_status_message_id(status_message_id)  
@@ -311,14 +311,14 @@ def send_status_to_discord():
             except Exception as e:  
                 print(f"⚠️ Erro ao editar mensagem: {str(e)}, enviando nova...")  
                 response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-                if response.status_code == 204:  
+                if response.status_code == 200:  
                     data = response.json()  
                     status_message_id = data.get("id")  
                     save_status_message_id(status_message_id)  
         else:  
             # Primeira vez, envia nova mensagem  
             response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-            if response.status_code == 204:  
+            if response.status_code == 200:  
                 data = response.json()  
                 status_message_id = data.get("id")  
                 save_status_message_id(status_message_id)  
