@@ -159,7 +159,7 @@ def send_discord_async(embed, target_webhook):
     try:  
         payload = {"embeds": [embed]}  
         response = requests.post(target_webhook, json=payload, timeout=5)  
-        if response.status_code == 204:  
+        if response.status_code in [200, 204]:  
             print(f"✅ Brainrot enviado para Discord")  
         else:  
             print(f"⚠️ Status {response.status_code} ao enviar brainrot")  
@@ -211,25 +211,6 @@ def send_discord_detailed_log(report: ScanReport):
           
     except Exception as e:  
         print(f"❌ Erro ao processar Discord: {str(e)}")  
-def delete_previous_message(message_id):  
-    try:  
-        webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
-        webhook_id = webhook_parts[0]  
-        webhook_token = webhook_parts[1]  
-          
-        delete_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}"  
-          
-        response = requests.delete(delete_url, timeout=5)  
-          
-        if response.status_code == 204:  
-            print(f"✅ Mensagem anterior deletada")  
-            return True  
-        else:  
-            print(f"⚠️ Falha ao deletar mensagem")  
-            return False  
-    except Exception as e:  
-        print(f"⚠️ Erro ao deletar mensagem: {str(e)}")  
-        return False  
 def send_status_to_discord():  
     global status_message_id  
       
@@ -302,6 +283,7 @@ def send_status_to_discord():
           
         payload = {"embeds": [embed]}  
           
+        # Se já existe mensagem, tenta editar  
         if status_message_id:  
             try:  
                 webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
@@ -312,25 +294,28 @@ def send_status_to_discord():
                   
                 response = requests.patch(edit_url, json=payload, timeout=5)  
                   
-                if response.status_code == 200:  
-                    print(f"✅ Status editado")  
+                # ✅ ACEITA AMBOS 200 E 204  
+                if response.status_code in [200, 204]:  
+                    print(f"✅ Status editado com sucesso")  
                     return  
                 else:  
-                    print(f"⚠️ Falha ao editar, deletando anterior...")  
-                    delete_previous_message(status_message_id)  
+                    print(f"⚠️ Falha ao editar (status {response.status_code}), enviando nova...")  
                     status_message_id = None  
             except Exception as e:  
                 print(f"⚠️ Erro ao editar: {str(e)}")  
-                delete_previous_message(status_message_id)  
                 status_message_id = None  
           
+        # Envia nova mensagem  
         response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
           
-        if response.status_code == 200:  
+        # ✅ ACEITA AMBOS 200 E 204  
+        if response.status_code in [200, 204]:  
             data = response.json()  
             status_message_id = data.get("id")  
             save_status_message_id(status_message_id)  
-            print(f"✅ Nova mensagem de status enviada")  
+            print(f"✅ Nova mensagem de status enviada: {status_message_id}")  
+        else:  
+            print(f"⚠️ Falha ao enviar status (status {response.status_code})")  
       
     except Exception as e:  
         print(f"❌ Erro ao enviar status: {str(e)}")  
