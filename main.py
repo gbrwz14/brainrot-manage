@@ -45,9 +45,9 @@ server_queue: List[str] = []
 scan_history: List[Dict] = []  
 invalid_servers: Dict[str, float] = {}  
 active_accounts: Dict[str, float] = {}  
-status_message_id = None  # ID da mensagem de status  
+status_message_id = None  
 INVALID_SERVER_COOLDOWN = 300  
-ACCOUNT_TIMEOUT = 600  # 10 minutos  
+ACCOUNT_TIMEOUT = 600  
 executor = ThreadPoolExecutor(max_workers=10)  
 # --- ESTATÍSTICAS GLOBAIS ---  
 stats = {  
@@ -120,7 +120,6 @@ def update_stats(report: ScanReport):
     for brainrot in report.details.brainrots:  
         stats["total_brainrots"] += 1  
           
-        # Categoriza por valor  
         if brainrot.value_numeric >= 1_000_000_000:  
             stats["brainrots_by_category"]["1B+"] += 1  
         elif brainrot.value_numeric >= 500_000_000:  
@@ -163,19 +162,25 @@ def send_discord_async(embed, target_webhook):
     """Envia para Discord de forma assíncrona"""  
     try:  
         payload = {"embeds": [embed]}  
-        requests.post(target_webhook, json=payload, timeout=5)  
+        response = requests.post(target_webhook, json=payload, timeout=5)  
+        if response.status_code == 204:  
+            print(f"✅ Brainrot enviado para Discord: {target_webhook[-20:]}")  
+        else:  
+            print(f"⚠️ Status {response.status_code} ao enviar brainrot")  
     except Exception as e:  
         print(f"❌ Erro ao enviar Discord: {str(e)}")  
 def send_discord_detailed_log(report: ScanReport):  
     try:  
         brainrots = report.details.brainrots  
         if not brainrots:  
+            print(f"⚠️ Nenhum brainrot encontrado no servidor {report.job_id}")  
             return  
           
         top_value = max([br.value_numeric for br in brainrots])  
         target_webhook = get_target_webhook(top_value)  
           
         if not target_webhook:  
+            print(f"⚠️ Nenhum webhook encontrado para valor: {top_value}")  
             return  
           
         brainrot_list = ""  
@@ -205,6 +210,7 @@ def send_discord_detailed_log(report: ScanReport):
             "timestamp": datetime.utcnow().isoformat()  
         }  
           
+        print(f"📤 Enviando brainrot para Discord: {top_value} ({brainrot_list.count(chr(10))} items)")  
         executor.submit(send_discord_async, embed, target_webhook)  
           
     except Exception as e:  
@@ -235,21 +241,19 @@ def send_status_to_discord():
       
     try:  
         active_count = get_active_accounts_count()  
-        total_accounts = 25  # Mude para seu número de contas  
+        total_accounts = 25  
         percentage = (active_count / total_accounts) * 100 if total_accounts > 0 else 0  
           
         categories = stats["brainrots_by_category"]  
         total_brainrots = stats["total_brainrots"]  
           
-        # Determina cor baseado na saúde  
         if percentage >= 80:  
-            color = 3066993  # Verde  
+            color = 3066993  
         elif percentage >= 50:  
-            color = 16776960  # Amarelo  
+            color = 16776960  
         else:  
-            color = 16711680  # Vermelho  
+            color = 16711680  
           
-        # Formata os dados com nomes em PascalCase  
         embed = {  
             "title": "📊 STATUS DO NOTIFIER",  
             "color": color,  
@@ -304,7 +308,6 @@ def send_status_to_discord():
           
         payload = {"embeds": [embed]}  
           
-        # Se já existe mensagem, tenta editar  
         if status_message_id:  
             try:  
                 webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
@@ -319,16 +322,14 @@ def send_status_to_discord():
                     print(f"✅ Status editado: {active_count}/{total_accounts} contas ativas")  
                     return  
                 else:  
-                    # Se falhar ao editar, deleta a anterior e envia nova  
-                    print(f"⚠️ Falha ao editar, deletando anterior e enviando nova...")  
+                    print(f"⚠️ Falha ao editar, deletando anterior...")  
                     delete_previous_message(status_message_id)  
                     status_message_id = None  
             except Exception as e:  
-                print(f"⚠️ Erro ao editar mensagem: {str(e)}, deletando anterior...")  
+                print(f"⚠️ Erro ao editar mensagem: {str(e)}")  
                 delete_previous_message(status_message_id)  
                 status_message_id = None  
           
-        # Envia nova mensagem  
         response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
           
         if response.status_code == 200:  
@@ -344,12 +345,11 @@ def status_sender():
     print("🚀 Thread de status iniciada")  
     while True:  
         try:  
-            time.sleep(300)  # 5 minutos  
+            time.sleep(300)  
             send_status_to_discord()  
         except Exception as e:  
             print(f"❌ Erro na thread de status: {str(e)}")  
-            time.sleep(60)  # Tenta novamente em 1 min  
-# --- INICIA THREAD DE STATUS ---  
+            time.sleep(60)  
 print("🔄 Iniciando thread de status...")  
 status_thread = threading.Thread(target=status_sender, daemon=True)  
 status_thread.start()  
@@ -371,7 +371,6 @@ def mark_server_invalid(job_id: str):
 @app.post("/scan-report")  
 async def receive_scan_report(report: ScanReport):  
     try:  
-        # Marca conta como ativa  
         mark_account_active(report.job_id)  
           
         scan_history.append({  
@@ -381,14 +380,19 @@ async def receive_scan_report(report: ScanReport):
             "brainrot_count": len(report.details.brainrots)  
         })  
           
-        # Atualiza estatísticas  
         update_stats(report)  
           
+        print(f"📊 Scan recebido: {report.job_id} - {len(report.details.brainrots)} brainrots")  
+          
         if report.details.brainrots:  
+            print(f"🎯 Enviando {len(report.details.brainrots)} brainrots para Discord...")  
             send_discord_detailed_log(report)  
+        else:  
+            print(f"⚠️ Nenhum brainrot encontrado neste scan")  
               
         return {"status": "ok", "message": "Scan recebido com sucesso"}  
     except Exception as e:  
+        print(f"❌ Erro ao receber scan: {str(e)}")  
         raise HTTPException(status_code=400, detail=str(e))  
 @app.post("/add-job")  
 async def add_job(server: ServerQueue):  
@@ -454,7 +458,6 @@ async def queue_status():
     }  
 @app.post("/clear-queue")  
 async def clear_queue():  
-    """Limpa toda a fila de servidores"""  
     global server_queue  
     cleared_count = len(server_queue)  
     server_queue = []  
@@ -467,7 +470,6 @@ async def clear_queue():
     }  
 @app.post("/clear-invalid")  
 async def clear_invalid():  
-    """Limpa a lista de servidores inválidos"""  
     global invalid_servers  
     cleared_count = len(invalid_servers)  
     invalid_servers = {}  
@@ -480,7 +482,6 @@ async def clear_invalid():
     }  
 @app.post("/refresh-queue")  
 async def refresh_queue():  
-    """Limpa TUDO e prepara para novos IDs (RESET COMPLETO)"""  
     global server_queue, invalid_servers  
     queue_count = len(server_queue)  
     invalid_count = len(invalid_servers)  
@@ -501,7 +502,6 @@ async def refresh_queue():
     }  
 @app.get("/queue-health")  
 async def queue_health():  
-    """Mostra saúde da fila"""  
     if len(server_queue) > 100:  
         health = "✅ EXCELENTE"  
     elif len(server_queue) > 50:  
@@ -523,7 +523,6 @@ async def queue_health():
     }  
 @app.get("/stats")  
 async def get_stats():  
-    """Estatísticas completas do sistema"""  
     active_count = get_active_accounts_count()  
       
     return {  
@@ -539,7 +538,6 @@ async def get_stats():
     }  
 @app.get("/test-status")  
 async def test_status():  
-    """Testa envio de status"""  
     send_status_to_discord()  
     return {"status": "ok", "message": "Status enviado para teste"}  
 @app.get("/health")  
@@ -547,7 +545,6 @@ async def health_check():
     return {"status": "ok"}  
 @app.get("/")  
 async def root():  
-    """Informações da API"""  
     return {  
         "name": "Brainrot Scanner API",  
         "version": "4.0",  
