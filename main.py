@@ -94,23 +94,30 @@ def save_invalid_servers():
     except Exception as e:  
         print(f"❌ Erro ao salvar servidores inválidos: {str(e)}")  
 def load_status_message_id():  
+    global status_message_id  
     try:  
         if os.path.exists(STATUS_MESSAGE_FILE):  
             with open(STATUS_MESSAGE_FILE, 'r') as f:  
                 data = json.load(f)  
-                return data.get("message_id")  
+                status_message_id = data.get("message_id")  
+                if status_message_id:  
+                    print(f"✅ Message ID carregado: {status_message_id}")  
+                return status_message_id  
     except Exception as e:  
         print(f"⚠️ Erro ao carregar ID da mensagem: {str(e)}")  
     return None  
 def save_status_message_id(message_id):  
+    global status_message_id  
+    status_message_id = message_id  
     try:  
         with open(STATUS_MESSAGE_FILE, 'w') as f:  
             json.dump({"message_id": message_id}, f)  
+        print(f"✅ Message ID salvo: {message_id}")  
     except Exception as e:  
         print(f"❌ Erro ao salvar ID da mensagem: {str(e)}")  
 server_queue = load_queue()  
 invalid_servers = load_invalid_servers()  
-status_message_id = load_status_message_id()  
+load_status_message_id()  
 # --- FUNÇÕES DE ESTATÍSTICAS ---  
 def update_stats(report: ScanReport):  
     global stats  
@@ -283,7 +290,7 @@ def send_status_to_discord():
           
         payload = {"embeds": [embed]}  
           
-        # Se já existe mensagem, tenta editar  
+        # ✅ SE JÁ EXISTE MESSAGE_ID, EDITA  
         if status_message_id:  
             try:  
                 webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
@@ -292,11 +299,11 @@ def send_status_to_discord():
                   
                 edit_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}/messages/{status_message_id}"  
                   
+                print(f"🔄 Editando mensagem: {status_message_id}")  
                 response = requests.patch(edit_url, json=payload, timeout=5)  
                   
-                # ✅ ACEITA AMBOS 200 E 204  
                 if response.status_code in [200, 204]:  
-                    print(f"✅ Status editado com sucesso")  
+                    print(f"✅ Mensagem editada com sucesso!")  
                     return  
                 else:  
                     print(f"⚠️ Falha ao editar (status {response.status_code}), enviando nova...")  
@@ -305,15 +312,18 @@ def send_status_to_discord():
                 print(f"⚠️ Erro ao editar: {str(e)}")  
                 status_message_id = None  
           
-        # Envia nova mensagem  
+        # ✅ SE NÃO EXISTE, ENVIA NOVA  
+        print(f"📤 Enviando nova mensagem de status...")  
         response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
           
-        # ✅ ACEITA AMBOS 200 E 204  
         if response.status_code in [200, 204]:  
             data = response.json()  
-            status_message_id = data.get("id")  
-            save_status_message_id(status_message_id)  
-            print(f"✅ Nova mensagem de status enviada: {status_message_id}")  
+            new_message_id = data.get("id")  
+            if new_message_id:  
+                save_status_message_id(new_message_id)  
+                print(f"✅ Nova mensagem enviada: {new_message_id}")  
+            else:  
+                print(f"⚠️ Resposta sem ID: {data}")  
         else:  
             print(f"⚠️ Falha ao enviar status (status {response.status_code})")  
       
@@ -516,20 +526,4 @@ async def get_stats():
     }  
 @app.get("/test-status")  
 async def test_status():  
-    send_status_to_discord()  
-    return {"status": "ok", "message": "Status enviado para teste"}  
-@app.get("/health")  
-async def health_check():  
-    return {"status": "ok"}  
-@app.get("/")  
-async def root():  
-    return {  
-        "name": "Brainrot Scanner API",  
-        "version": "4.0",  
-        "status": "running"  
-    }  
-if __name__ == "__main__":  
-    import uvicorn  
-    port = int(os.environ.get("PORT", 8080))  
-    print(f"🚀 Iniciando servidor na porta {port}")  
-    uvicorn.run(app, host="0.0.0.0", port=port)  
+    sen
