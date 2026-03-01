@@ -110,10 +110,8 @@ load_status_message_id()
 def update_stats(report: ScanReport):  
     global stats  
     stats["total_scans"] += 1  
-      
     for brainrot in report.details.brainrots:  
         stats["total_brainrots"] += 1  
-          
         if brainrot.value_numeric >= 1_000_000_000:  
             stats["brainrots_by_category"]["1B+"] += 1  
         elif brainrot.value_numeric >= 500_000_000:  
@@ -129,13 +127,11 @@ def mark_account_active(job_id: str):
 def get_active_accounts_count():  
     current_time = datetime.utcnow().timestamp()  
     active_count = 0  
-      
     for job_id, last_seen in list(active_accounts.items()):  
         if current_time - last_seen < ACCOUNT_TIMEOUT:  
             active_count += 1  
         else:  
             del active_accounts[job_id]  
-      
     return active_count  
 def get_target_webhook(value: float):  
     if value >= 1_000_000_000:  
@@ -162,17 +158,13 @@ def send_discord_detailed_log(report: ScanReport):
         brainrots = report.details.brainrots  
         if not brainrots:  
             return  
-          
         top_value = max([br.value_numeric for br in brainrots])  
         target_webhook = get_target_webhook(top_value)  
-          
         if not target_webhook:  
             return  
-          
         brainrot_list = ""  
         for br in brainrots:  
             brainrot_list += f"{br.count}x {br.name} {br.value_per_second}\n"  
-          
         embed = {  
             "title": "☠️ Brainrots Detectados",  
             "color": 16711680,  
@@ -183,28 +175,23 @@ def send_discord_detailed_log(report: ScanReport):
             ],  
             "timestamp": datetime.utcnow().isoformat()  
         }  
-          
         executor.submit(send_discord_async, embed, target_webhook)  
     except Exception as e:  
         print(f"❌ Erro: {str(e)}")  
 def send_status_to_discord():  
     global status_message_id  
-      
     try:  
         active_count = get_active_accounts_count()  
         total_accounts = 25  
         percentage = (active_count / total_accounts) * 100 if total_accounts > 0 else 0  
-          
         categories = stats["brainrots_by_category"]  
         total_brainrots = stats["total_brainrots"]  
-          
         if percentage >= 80:  
             color = 3066993  
         elif percentage >= 50:  
             color = 16776960  
         else:  
             color = 16711680  
-          
         embed = {  
             "title": "📊 STATUS DO NOTIFIER",  
             "color": color,  
@@ -220,20 +207,15 @@ def send_status_to_discord():
             ],  
             "timestamp": datetime.utcnow().isoformat()  
         }  
-          
         payload = {"embeds": [embed]}  
-          
         if status_message_id:  
             try:  
                 webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")  
                 webhook_id = webhook_parts[0]  
                 webhook_token = webhook_parts[1]  
-                  
                 edit_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}/messages/{status_message_id}"  
-                  
                 print(f"🔄 Editando mensagem: {status_message_id}")  
                 response = requests.patch(edit_url, json=payload, timeout=5)  
-                  
                 if response.status_code in [200, 204]:  
                     print(f"✅ Mensagem editada!")  
                     return  
@@ -243,17 +225,14 @@ def send_status_to_discord():
             except Exception as e:  
                 print(f"⚠️ Erro: {str(e)}")  
                 status_message_id = None  
-          
         print(f"📤 Enviando nova mensagem...")  
         response = requests.post(STATUS_WEBHOOK, json=payload, timeout=5)  
-          
         if response.status_code in [200, 204]:  
             data = response.json()  
             new_message_id = data.get("id")  
             if new_message_id:  
                 save_status_message_id(new_message_id)  
                 print(f"✅ Nova mensagem: {new_message_id}")  
-      
     except Exception as e:  
         print(f"❌ Erro: {str(e)}")  
 def status_sender():  
@@ -290,15 +269,11 @@ async def receive_scan_report(report: ScanReport):
             "player_count": report.player_count,  
             "brainrot_count": len(report.details.brainrots)  
         })  
-          
         update_stats(report)  
-          
         print(f"📊 Scan: {report.job_id} - {len(report.details.brainrots)} brainrots")  
-          
         if report.details.brainrots:  
             print(f"🎯 Enviando para Discord...")  
             send_discord_detailed_log(report)  
-              
         return {"status": "ok", "message": "Scan recebido com sucesso"}  
     except Exception as e:  
         print(f"❌ Erro: {str(e)}")  
@@ -313,16 +288,13 @@ async def add_job(server: ServerQueue):
 async def get_next_server():  
     while server_queue:  
         job_id = server_queue[0]  
-          
         if is_server_invalid(job_id):  
             server_queue.pop(0)  
             save_queue()  
             continue  
-          
         server_queue.pop(0)  
         save_queue()  
         return {"job_id": job_id}  
-      
     return {"job_id": None}  
 @app.post("/mark-invalid")  
 async def mark_invalid(server: ServerQueue):  
@@ -343,10 +315,132 @@ async def get_invalid_servers():
         if datetime.utcnow().timestamp() - invalid_servers[job_id] >= INVALID_SERVER_COOLDOWN:  
             expired.append(job_id)  
             del invalid_servers[job_id]  
-      
     if expired:  
         save_invalid_servers()  
-      
     return {  
         "status": "ok",  
-        "total_invalid": len(invalid_
+        "total_invalid": len(invalid_servers),  
+        "invalid_servers": invalid_servers,  
+        "timestamp": datetime.utcnow().isoformat()  
+    }  
+@app.get("/queue-status")  
+async def queue_status():  
+    return {  
+        "status": "ok",  
+        "queue_size": len(server_queue),  
+        "servers_in_queue": server_queue,  
+        "invalid_servers_count": len(invalid_servers),  
+        "scan_history_count": len(scan_history),  
+        "last_scans": scan_history[-10:] if scan_history else [],  
+        "timestamp": datetime.utcnow().isoformat()  
+    }  
+@app.post("/clear-queue")  
+async def clear_queue():  
+    global server_queue  
+    cleared_count = len(server_queue)  
+    server_queue = []  
+    save_queue()  
+    print(f"🧹 Fila limpa! {cleared_count} removidos")  
+    return {  
+        "status": "ok",  
+        "message": f"Fila limpa! {cleared_count} servidores removidos",  
+        "queue_size": 0  
+    }  
+@app.post("/clear-invalid")  
+async def clear_invalid():  
+    global invalid_servers  
+    cleared_count = len(invalid_servers)  
+    invalid_servers = {}  
+    save_invalid_servers()  
+    print(f"🧹 Inválidos limpos! {cleared_count} removidos")  
+    return {  
+        "status": "ok",  
+        "message": f"Servidores inválidos limpos! {cleared_count} removidos",  
+        "invalid_count": 0  
+    }  
+@app.post("/refresh-queue")  
+async def refresh_queue():  
+    global server_queue, invalid_servers  
+    queue_count = len(server_queue)  
+    invalid_count = len(invalid_servers)  
+    server_queue = []  
+    invalid_servers = {}  
+    save_queue()  
+    save_invalid_servers()  
+    print(f"🔄 Sistema resetado!")  
+    return {  
+        "status": "ok",  
+        "message": "✅ Sistema resetado!",  
+        "cleared_queue": queue_count,  
+        "cleared_invalid": invalid_count,  
+        "queue_size": 0,  
+        "invalid_count": 0  
+    }  
+@app.get("/queue-health")  
+async def queue_health():  
+    if len(server_queue) > 100:  
+        health = "✅ EXCELENTE"  
+    elif len(server_queue) > 50:  
+        health = "✅ BOM"  
+    elif len(server_queue) > 10:  
+        health = "⚠️ BAIXO"  
+    elif len(server_queue) > 0:  
+        health = "⚠️ CRÍTICO"  
+    else:  
+        health = "❌ VAZIO"  
+    return {  
+        "status": "ok",  
+        "queue_size": len(server_queue),  
+        "invalid_count": len(invalid_servers),  
+        "total_processed": len(scan_history),  
+        "health": health,  
+        "timestamp": datetime.utcnow().isoformat()  
+    }  
+@app.get("/stats")  
+async def get_stats():  
+    active_count = get_active_accounts_count()  
+    return {  
+        "status": "ok",  
+        "queue_size": len(server_queue),  
+        "invalid_servers": len(invalid_servers),  
+        "total_scans": stats["total_scans"],  
+        "total_brainrots": stats["total_brainrots"],  
+        "active_accounts": active_count,  
+        "brainrots_by_category": stats["brainrots_by_category"],  
+        "uptime": "24/7",  
+        "timestamp": datetime.utcnow().isoformat()  
+    }  
+@app.get("/test-status")  
+async def test_status():  
+    send_status_to_discord()  
+    return {"status": "ok", "message": "Status enviado para teste"}  
+@app.get("/health")  
+async def health_check():  
+    return {"status": "ok"}  
+@app.get("/")  
+async def root():  
+    return {  
+        "name": "Brainrot Scanner API",  
+        "version": "4.0",  
+        "status": "running",  
+        "endpoints": {  
+            "POST /scan-report": "Receber relatório de scan",  
+            "POST /add-job": "Adicionar servidor à fila",  
+            "GET /next-server": "Obter próximo servidor",  
+            "GET /servers": "Ver todos os servidores",  
+            "GET /queue-status": "Status da fila",  
+            "GET /queue-health": "Saúde da fila",  
+            "GET /invalid-servers": "Servidores inválidos",  
+            "POST /clear-queue": "Limpar fila",  
+            "POST /clear-invalid": "Limpar inválidos",  
+            "POST /refresh-queue": "Reset completo",  
+            "GET /stats": "Estatísticas completas",  
+            "GET /test-status": "Testar envio de status",  
+            "GET /health": "Health check"  
+        }  
+    }  
+if __name__ == "__main__":  
+    import uvicorn  
+    port = int(os.environ.get("PORT", 8080))  
+    print(f"🚀 Iniciando servidor na porta {port}")  
+    uvicorn.run(app, host="0.0.0.0", port=port)  
