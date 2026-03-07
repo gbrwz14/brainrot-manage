@@ -54,28 +54,77 @@ stats = {
         "1B+": 0  
     }  
 }  
-def load_status_message_id():  
-    global status_message_id  
-    try:  
-        if os.path.exists(STATUS_MESSAGE_FILE):  
-            with open(STATUS_MESSAGE_FILE, 'r') as f:  
-                data = json.load(f)  
-                status_message_id = data.get("message_id")  
-                if status_message_id:  
-                    print(f"✅ Message ID carregado: {status_message_id}")  
-                return status_message_id  
-    except Exception as e:  
-        print(f"⚠️ Erro: {str(e)}")  
-    return None  
-def save_status_message_id(message_id):  
-    global status_message_id  
-    status_message_id = message_id  
-    try:  
-        with open(STATUS_MESSAGE_FILE, 'w') as f:  
-            json.dump({"message_id": message_id}, f)  
-        print(f"✅ Message ID salvo: {message_id}")  
-    except Exception as e:  
-        print(f"❌ Erro: {str(e)}")  
+def send_status_to_discord():
+    global status_message_id
+
+    try:
+        active_count = get_active_accounts_count()
+        total_accounts = 25
+        percentage = (active_count / total_accounts) * 100 if total_accounts > 0 else 0
+
+        categories = stats["brainrots_by_category"]
+        total_brainrots = stats["total_brainrots"]
+
+        if percentage >= 80:
+            color = 3066993
+        elif percentage >= 50:
+            color = 16776960
+        else:
+            color = 16711680
+
+        embed = {
+            "title": "📊 STATUS DO NOTIFIER",
+            "color": color,
+            "fields": [
+                {"name": "🤖 CONTAS ATIVAS", "value": f"**{active_count}/{total_accounts}** ({percentage:.1f}%)", "inline": False},
+                {"name": "🛰️ SISTEMA", "value": f"**Fila:** {len(server_queue)} IDs\n**Inválidos:** {len(invalid_servers)}\n**Scans:** {stats['total_scans']}", "inline": False},
+                {"name": "☠️ BRAINROTS", "value": f"**Total:** {total_brainrots}", "inline": False},
+                {"name": "💰 10-50M", "value": f"{categories['10-50M']}", "inline": True},
+                {"name": "💰 50-100M", "value": f"{categories['50-100M']}", "inline": True},
+                {"name": "💰 100M-500M", "value": f"{categories['100M-500M']}", "inline": True},
+                {"name": "💰 500M-1B", "value": f"{categories['500M-1B']}", "inline": True},
+                {"name": "💰 1B+", "value": f"{categories['1B+']}", "inline": True}
+            ],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        payload = {"embeds": [embed]}
+
+        # 🔁 EDITAR MENSAGEM EXISTENTE
+        if status_message_id:
+
+            webhook_parts = STATUS_WEBHOOK.split("/webhooks/")[1].split("/")
+            webhook_id = webhook_parts[0]
+            webhook_token = webhook_parts[1]
+
+            edit_url = f"https://discord.com/api/webhooks/{webhook_id}/{webhook_token}/messages/{status_message_id}"
+
+            response = requests.patch(edit_url, json=payload, timeout=5)
+
+            if response.status_code in [200, 204]:
+                print("✅ Status editado")
+                return
+            else:
+                print("⚠️ Falha ao editar, criando nova mensagem")
+                status_message_id = None
+
+        # 📤 CRIAR PRIMEIRA MENSAGEM
+        response = requests.post(
+            STATUS_WEBHOOK + "?wait=true",
+            json=payload,
+            timeout=5
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            new_message_id = data.get("id")
+
+            if new_message_id:
+                save_status_message_id(new_message_id)
+                print(f"✅ Nova mensagem criada: {new_message_id}")
+
+    except Exception as e:
+        print(f"❌ Erro ao enviar status: {str(e)}") 
 def load_queue():  
     try:  
         if os.path.exists(QUEUE_FILE):  
